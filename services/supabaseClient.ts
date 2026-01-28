@@ -2,21 +2,31 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Product, Order, User, Enrollment } from '../types';
 
-// Provided Supabase credentials
+// Provided Supabase credentials as fallbacks
 const FALLBACK_URL = 'https://uljlkwbqadhgsfmhqaup.supabase.co';
 const FALLBACK_KEY = 'sb_publishable_M1fMGhxpcsCGrjvXADj_DQ_Pwer0Rvj';
 
 const getEnv = (key: string): string => {
   try {
-    if (typeof process !== 'undefined' && process.env && process.env[key]) {
-      return process.env[key] as string;
-    }
-    if (typeof (window as any).process !== 'undefined' && (window as any).process.env && (window as any).process.env[key]) {
-      return (window as any).process.env[key];
+    // Check various common prefixes for different build tools and environments
+    const searchKeys = [
+      key,
+      `VITE_${key}`,
+      `NEXT_PUBLIC_${key}`,
+      `REACT_APP_${key}`
+    ];
+
+    for (const k of searchKeys) {
+      const val = (typeof process !== 'undefined' && process.env ? process.env[k] : null) || 
+                  (typeof (window as any).process !== 'undefined' && (window as any).process.env ? (window as any).process.env[k] : null) ||
+                  (typeof (window as any).env !== 'undefined' ? (window as any).env[k] : null);
+      
+      if (val && typeof val === 'string') return val;
     }
   } catch (e) {
     console.warn(`Error accessing environment variable ${key}:`, e);
   }
+  
   if (key === 'SUPABASE_URL') return FALLBACK_URL;
   if (key === 'SUPABASE_ANON_KEY') return FALLBACK_KEY;
   return '';
@@ -39,6 +49,19 @@ class SupabaseService {
   private get client(): SupabaseClient {
     if (!supabase) throw new Error("Supabase client is not initialized.");
     return supabase;
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      if (!supabase) return false;
+      // Test by attempting to fetch a single product
+      const { data, error } = await this.client.from('products').select('id').limit(1);
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error("Supabase connection test failed:", e);
+      return false;
+    }
   }
 
   private isAvailable(): boolean {

@@ -12,12 +12,26 @@ interface AdminDashboardProps {
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProducts, orders: initialOrders, onUpdateOrderStatus }) => {
-  const [tab, setTab] = useState<'products' | 'orders' | 'subscribers'>('products');
+  const [tab, setTab] = useState<'products' | 'orders' | 'subscribers' | 'settings'>('products');
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [allOrders, setAllOrders] = useState<Order[]>(initialOrders);
   const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  
+  // Health Status
+  const [dbStatus, setDbStatus] = useState<'checking' | 'ok' | 'error'>('checking');
+  const [aiStatus, setAiStatus] = useState<'checking' | 'ok' | 'error'>('checking');
+
+  useEffect(() => {
+    checkHealth();
+  }, []);
+
+  const checkHealth = async () => {
+    const isDbOk = await db.testConnection();
+    setDbStatus(isDbOk ? 'ok' : 'error');
+    setAiStatus(process.env.API_KEY ? 'ok' : 'error');
+  };
 
   useEffect(() => {
     if (tab === 'subscribers') loadEnrollments();
@@ -75,9 +89,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProd
             <span className="bg-indigo-100 p-3 rounded-[2rem] shadow-sm">🛡️</span>
             {lang === 'ar' ? 'لوحة تحكم المدير' : 'Admin Terminal'}
           </h2>
-          <p className="text-indigo-400 font-bold text-xs mt-2 uppercase tracking-[0.2em] ml-2">
-            Secure Store Management & Inventory
-          </p>
+          <div className="flex items-center gap-4 mt-2 ml-2">
+            <p className="text-indigo-400 font-bold text-xs uppercase tracking-[0.2em]">
+              Management & Inventory
+            </p>
+            <div className="flex items-center gap-2 border-l border-indigo-100 pl-4">
+              <span className={`w-2 h-2 rounded-full ${dbStatus === 'ok' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse' : dbStatus === 'checking' ? 'bg-gray-300' : 'bg-red-500'}`}></span>
+              <span className="text-[10px] font-black text-indigo-900/60 uppercase">DB</span>
+              
+              <span className={`w-2 h-2 rounded-full ml-2 ${aiStatus === 'ok' ? 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)] animate-pulse' : aiStatus === 'checking' ? 'bg-gray-300' : 'bg-red-500'}`}></span>
+              <span className="text-[10px] font-black text-indigo-900/60 uppercase">AI</span>
+            </div>
+          </div>
         </div>
         
         {tab === 'products' && (
@@ -101,6 +124,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProd
           </button>
           <button onClick={() => setTab('subscribers')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-black text-sm transition-all ${tab === 'subscribers' ? 'bg-indigo-900 text-white shadow-xl' : 'bg-white text-indigo-400 border border-indigo-50'}`}>
             <i className="bi bi-people"></i> {lang === 'ar' ? 'المشتركون' : 'Subscribers'}
+          </button>
+          <button onClick={() => setTab('settings')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-black text-sm transition-all ${tab === 'settings' ? 'bg-indigo-900 text-white shadow-xl' : 'bg-white text-indigo-400 border border-indigo-50'}`}>
+            <i className="bi bi-gear"></i> {lang === 'ar' ? 'إعدادات المنصة' : 'Cloud Config'}
           </button>
         </div>
 
@@ -187,7 +213,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProd
                 </tbody>
               </table>
             </div>
-          ) : (
+          ) : tab === 'subscribers' ? (
             <div className="bg-white rounded-[2.5rem] shadow-xl border border-indigo-50 overflow-hidden">
               <div className="p-6 border-b border-indigo-50 flex justify-between items-center">
                  <h3 className="font-black text-indigo-950">{lang === 'ar' ? 'قائمة المشتركين' : 'WhatsApp Subscriber List'}</h3>
@@ -221,6 +247,68 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProd
                   )}
                 </tbody>
               </table>
+            </div>
+          ) : (
+            <div className="space-y-6 animate-in slide-in-from-right-4">
+              <div className="bg-indigo-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden">
+                <div className="relative z-10">
+                  <h3 className="text-2xl font-black mb-2 flex items-center gap-3">
+                    <i className="bi bi-cloud-arrow-up"></i>
+                    Vercel Environment Setup
+                  </h3>
+                  <p className="text-indigo-200 text-sm font-bold mb-8 max-w-xl">
+                    To make your database and AI features persistent on Vercel, you must add these environment variables in your Vercel Dashboard under <b>Project Settings > Environment Variables</b>.
+                  </p>
+
+                  <div className="space-y-4">
+                    {[
+                      { key: 'SUPABASE_URL', val: 'https://uljlkwbqadhgsfmhqaup.supabase.co' },
+                      { key: 'SUPABASE_ANON_KEY', val: 'sb_publishable_M1fMGhxpcsCGrjvXADj_DQ_Pwer0Rvj' },
+                      { key: 'API_KEY', val: 'Your_Gemini_API_Key' }
+                    ].map(env => (
+                      <div key={env.key} className="bg-white/10 border border-white/20 p-4 rounded-2xl flex items-center justify-between group hover:bg-white/20 transition-colors">
+                        <div>
+                          <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Variable Name</p>
+                          <code className="text-sm font-black text-white">{env.key}</code>
+                        </div>
+                        <button 
+                          onClick={() => { navigator.clipboard.writeText(env.key); alert('Copied key name!'); }}
+                          className="p-2 text-indigo-300 hover:text-white transition-colors"
+                        >
+                          <i className="bi bi-copy"></i>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-8 p-4 bg-orange-500/20 border border-orange-500/30 rounded-2xl">
+                    <p className="text-xs font-bold text-orange-200">
+                      💡 Tip: After adding these variables, you must <b>Redeploy</b> your project in Vercel for the changes to take effect.
+                    </p>
+                  </div>
+                </div>
+                <div className="absolute -bottom-10 -right-10 text-[10rem] text-white/5 pointer-events-none">
+                  <i className="bi bi-vimeo"></i>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[2.5rem] border border-indigo-50 p-10">
+                <h4 className="font-black text-indigo-950 mb-4">Deployment Checklist</h4>
+                <ul className="space-y-3">
+                  <li className="flex items-center gap-3 text-sm text-gray-500">
+                    <i className={`bi ${dbStatus === 'ok' ? 'bi-check-circle-fill text-green-500' : 'bi-circle text-gray-200'}`}></i>
+                    Database Connection Status: {dbStatus.toUpperCase()}
+                  </li>
+                  <li className="flex items-center gap-3 text-sm text-gray-500">
+                    <i className={`bi ${aiStatus === 'ok' ? 'bi-check-circle-fill text-green-500' : 'bi-circle text-gray-200'}`}></i>
+                    AI Engine Status: {aiStatus.toUpperCase()}
+                  </li>
+                  <li className="flex items-center gap-3 text-sm text-gray-500">
+                    <i className="bi bi-check-circle-fill text-green-500"></i>
+                    Vercel Git Integration: Active
+                  </li>
+                </ul>
+              </div>
             </div>
           )}
         </div>

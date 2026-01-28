@@ -13,7 +13,10 @@ import SpecialDeals from './components/SpecialDeals';
 import WhatsAppEnrollment from './components/WhatsAppEnrollment';
 import AddToHomeScreen from './components/AddToHomeScreen';
 
-// Main Application Component
+// App Version for Deployment Verification
+const APP_VERSION = "1.0.4-live-sync";
+const BUILD_DATE = new Date().toLocaleString();
+
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('ar');
   const [user, setUser] = useState<User | null>(null);
@@ -212,6 +215,15 @@ const App: React.FC = () => {
             orders={orders}
             onUpdateOrderStatus={updateOrderStatus}
           />
+          {/* Build Info Tag for Vercel Verification */}
+          <div className="mt-20 py-10 border-t border-gray-100 text-center opacity-30 select-none grayscale">
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+              Build Signature: {APP_VERSION}
+            </p>
+            <p className="text-[8px] font-bold text-gray-300">
+              Latest Deployment: {BUILD_DATE}
+            </p>
+          </div>
         </div>
       );
     }
