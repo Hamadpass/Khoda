@@ -10,6 +10,8 @@ interface ProductCardProps {
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, lang, onAdd }) => {
   const [qty, setQty] = useState(1);
+  const hasDiscount = product.discountPrice && product.discountPrice < product.price;
+  const currentPrice = hasDiscount ? product.discountPrice! : product.price;
 
   return (
     <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-full hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group">
@@ -20,11 +22,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, lang, onAdd }) => {
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
           loading="lazy"
         />
-        {product.organic && (
-          <span className="absolute top-3 right-3 bg-green-600 text-white text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider shadow-lg">
-            {lang === 'ar' ? 'عضوي' : 'Organic'}
-          </span>
-        )}
+        <div className="absolute top-3 right-3 flex flex-col gap-2">
+          {product.organic && (
+            <span className="bg-green-600 text-white text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider shadow-lg">
+              {lang === 'ar' ? 'عضوي' : 'Organic'}
+            </span>
+          )}
+          {hasDiscount && (
+            <span className="bg-orange-500 text-white text-[9px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider shadow-lg animate-pulse">
+              {lang === 'ar' ? 'خصم خاص' : 'Special Deal'}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="p-4 flex flex-col flex-grow">
@@ -32,9 +41,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, lang, onAdd }) => {
           {product.name[lang]}
         </h3>
         
-        <div className="flex items-baseline gap-1 mb-4">
-          <span className="text-[#ff5722] font-black text-xl">{product.price.toFixed(2)}</span>
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">JD / {product.unit}</span>
+        <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-baseline gap-1">
+            <span className="text-[#ff5722] font-black text-xl">{currentPrice.toFixed(2)}</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">JD / {product.unit}</span>
+          </div>
+          {hasDiscount && (
+            <span className="text-gray-300 text-xs line-through font-bold">
+              {product.price.toFixed(2)}
+            </span>
+          )}
         </div>
 
         <div className="mt-auto space-y-3">
@@ -54,7 +70,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, lang, onAdd }) => {
 
           <button 
             onClick={() => onAdd(product, qty)}
-            className="w-full bg-[#266041] hover:bg-[#1a4a32] text-white py-3 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-900/10 active:scale-95"
+            className={`w-full py-3 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95 ${
+              hasDiscount ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-500/10' : 'bg-[#266041] hover:bg-[#1a4a32] text-white shadow-green-900/10'
+            }`}
           >
             <i className="bi bi-cart-plus text-lg"></i>
             <span>{lang === 'ar' ? 'أضف للسلة' : 'Add to Cart'}</span>

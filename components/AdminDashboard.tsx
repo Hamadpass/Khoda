@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Product, Order, Language } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Product, Order, Language, Enrollment } from '../types';
 import { db } from '../services/supabaseClient';
 
 interface AdminDashboardProps {
@@ -11,259 +11,294 @@ interface AdminDashboardProps {
   onUpdateOrderStatus: (id: string, status: Order['status']) => void;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProducts, orders, onUpdateOrderStatus }) => {
-  const [tab, setTab] = useState<'products' | 'orders'>('products');
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang, products, setProducts, orders: initialOrders, onUpdateOrderStatus }) => {
+  const [tab, setTab] = useState<'products' | 'orders' | 'subscribers'>('products');
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [allOrders, setAllOrders] = useState<Order[]>(initialOrders);
+  const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-  const handleDelete = async (id: string) => {
+  useEffect(() => {
+    if (tab === 'subscribers') loadEnrollments();
+    if (tab === 'orders') loadAllOrders();
+  }, [tab]);
+
+  const loadEnrollments = async () => {
+    setLoading(true);
+    const data = await db.getEnrollments();
+    setEnrollments(data);
+    setLoading(false);
+  };
+
+  const loadAllOrders = async () => {
+    setLoading(true);
+    const data = await db.getOrders();
+    setAllOrders(data);
+    setLoading(false);
+  };
+
+  const handleDeleteProduct = async (id: string) => {
     if (window.confirm(lang === 'ar' ? 'هل أنت متأكد من الحذف؟' : 'Are you sure?')) {
       await db.deleteProduct(id);
       setProducts(products.filter(p => p.id !== id));
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleDeleteOrder = async (id: string) => {
+    if (window.confirm(lang === 'ar' ? 'هل أنت متأكد من حذف هذا الطلب نهائياً؟' : 'Are you sure you want to delete this order?')) {
+      await db.deleteOrder(id);
+      setAllOrders(allOrders.filter(o => o.id !== id));
+    }
+  };
+
+  const handleStatusChange = async (id: string, status: Order['status']) => {
+    await onUpdateOrderStatus(id, status);
+    setAllOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
-    
-    const product = {
-      ...editingProduct,
-      id: editingProduct.id || Math.random().toString(36).substr(2, 9),
-    } as Product;
-    
+    const product = { ...editingProduct, id: editingProduct.id || Math.random().toString(36).substr(2, 9) } as Product;
     await db.saveProduct(product);
     const updated = await db.getProducts();
     setProducts(updated);
     setEditingProduct(null);
   };
 
-  const stats = [
-    { label: { ar: 'المنتجات', en: 'Products' }, val: products.length, icon: '🥬' },
-    { label: { ar: 'الطلبات', en: 'Orders' }, val: orders.length, icon: '🛒' },
-    { label: { ar: 'الإيرادات', en: 'Revenue' }, val: `${orders.reduce((s, o) => s + (o.status === 'completed' ? o.total : 0), 0).toFixed(2)} JD`, icon: '💰' },
-  ];
-
   return (
-    <div className="py-8 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between mb-8">
-        <h2 className="text-3xl font-black text-indigo-900 flex items-center gap-3">
-          <span className="bg-indigo-100 p-2 rounded-2xl">🛡️</span>
-          {lang === 'ar' ? 'لوحة تحكم المدير' : 'Admin Terminal'}
-        </h2>
-        <div className="flex gap-2">
-           {tab === 'products' && (
-             <button 
-              onClick={() => setEditingProduct({ name: { en: '', ar: '' }, category: 'vegetables', price: 0, unit: 'KG', organic: false, image: '' })}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-xl font-bold text-sm shadow-lg transition-all"
-            >
-              + {lang === 'ar' ? 'منتج جديد' : 'New Product'}
-            </button>
-           )}
+    <div className="py-8 animate-in fade-in duration-500 max-w-[1400px] mx-auto">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-10 gap-6">
+        <div>
+          <h2 className="text-4xl font-black text-indigo-950 flex items-center gap-4">
+            <span className="bg-indigo-100 p-3 rounded-[2rem] shadow-sm">🛡️</span>
+            {lang === 'ar' ? 'لوحة تحكم المدير' : 'Admin Terminal'}
+          </h2>
+          <p className="text-indigo-400 font-bold text-xs mt-2 uppercase tracking-[0.2em] ml-2">
+            Secure Store Management & Inventory
+          </p>
         </div>
+        
+        {tab === 'products' && (
+          <button 
+            onClick={() => setEditingProduct({ name: { en: '', ar: '' }, category: 'vegetables', price: 0, unit: 'KG', organic: false, image: '' })}
+            className="bg-indigo-900 hover:bg-indigo-800 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2"
+          >
+            <i className="bi bi-plus-lg"></i>
+            {lang === 'ar' ? 'إضافة منتج' : 'Add Product'}
+          </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        {stats.map((s, i) => (
-          <div key={i} className="bg-white p-6 rounded-3xl shadow-sm border border-indigo-50 flex items-center justify-between group hover:shadow-xl transition-all">
-            <div>
-              <p className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-1">{s.label[lang]}</p>
-              <p className="text-4xl font-black text-indigo-900">{s.val}</p>
+      <div className="flex flex-col lg:flex-row gap-8">
+        <div className="w-full lg:w-64 space-y-2">
+          <button onClick={() => setTab('products')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-black text-sm transition-all ${tab === 'products' ? 'bg-indigo-900 text-white shadow-xl' : 'bg-white text-indigo-400 border border-indigo-50'}`}>
+            <i className="bi bi-box-seam"></i> {lang === 'ar' ? 'المخزون' : 'Inventory'}
+          </button>
+          <button onClick={() => setTab('orders')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-black text-sm transition-all ${tab === 'orders' ? 'bg-indigo-900 text-white shadow-xl' : 'bg-white text-indigo-400 border border-indigo-50'}`}>
+            <i className="bi bi-receipt"></i> {lang === 'ar' ? 'الطلبات' : 'Orders'}
+          </button>
+          <button onClick={() => setTab('subscribers')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-black text-sm transition-all ${tab === 'subscribers' ? 'bg-indigo-900 text-white shadow-xl' : 'bg-white text-indigo-400 border border-indigo-50'}`}>
+            <i className="bi bi-people"></i> {lang === 'ar' ? 'المشتركون' : 'Subscribers'}
+          </button>
+        </div>
+
+        <div className="flex-1">
+          {tab === 'products' ? (
+            <div className="bg-white rounded-[2.5rem] shadow-xl border border-indigo-50 overflow-hidden">
+              <table className="w-full text-left" dir="ltr">
+                <thead className="bg-indigo-50/50 text-[10px] font-black text-indigo-300 uppercase tracking-widest">
+                  <tr>
+                    <th className="px-8 py-5">Item</th>
+                    <th className="px-8 py-5">Category</th>
+                    <th className="px-8 py-5">Price</th>
+                    <th className="px-8 py-5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-indigo-50/30">
+                  {products.map(p => (
+                    <tr key={p.id} className="hover:bg-indigo-50/20 transition-colors group">
+                      <td className="px-8 py-4">
+                        <div className="flex items-center gap-3">
+                          <img src={p.image} className="w-10 h-10 rounded-lg object-cover" />
+                          <span className="font-black text-indigo-950 text-sm">{p.name[lang]}</span>
+                        </div>
+                      </td>
+                      <td className="px-8 py-4 uppercase text-[10px] font-black text-indigo-400">{p.category}</td>
+                      <td className="px-8 py-4 font-mono font-black text-indigo-950">{p.price.toFixed(2)} JD</td>
+                      <td className="px-8 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => setEditingProduct(p)} className="p-2 text-indigo-400 hover:text-indigo-900 transition-all"><i className="bi bi-pencil-square"></i></button>
+                          <button onClick={() => handleDeleteProduct(p.id)} className="p-2 text-red-300 hover:text-red-500 transition-all"><i className="bi bi-trash3"></i></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <span className="text-5xl group-hover:scale-110 transition-transform duration-500">{s.icon}</span>
-          </div>
-        ))}
+          ) : tab === 'orders' ? (
+            <div className="bg-white rounded-[2.5rem] shadow-xl border border-indigo-50 overflow-hidden">
+              <div className="p-6 border-b border-indigo-50 flex justify-between items-center">
+                <h3 className="font-black text-indigo-950">{lang === 'ar' ? 'جميع الطلبات' : 'All Customer Orders'}</h3>
+                <button onClick={loadAllOrders} className="text-indigo-600 p-2 hover:rotate-180 transition-transform"><i className="bi bi-arrow-clockwise"></i></button>
+              </div>
+              <table className="w-full text-left" dir="ltr">
+                <thead className="bg-indigo-50/50 text-[10px] font-black text-indigo-300 uppercase tracking-widest">
+                  <tr>
+                    <th className="px-6 py-5">ID</th>
+                    <th className="px-6 py-5">Customer</th>
+                    <th className="px-6 py-5">Total</th>
+                    <th className="px-6 py-5">Status</th>
+                    <th className="px-6 py-5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-indigo-50/30">
+                  {allOrders.map(o => (
+                    <tr key={o.id} className="hover:bg-indigo-50/20 transition-colors">
+                      <td className="px-6 py-4 font-mono text-xs font-black">#{o.id}</td>
+                      <td className="px-6 py-4">
+                        <p className="font-black text-indigo-950 text-xs">{o.customerPhone}</p>
+                        <p className="text-[10px] text-indigo-300">{o.customerCity}</p>
+                      </td>
+                      <td className="px-6 py-4 font-black text-indigo-950 text-xs">{o.total.toFixed(2)} JD</td>
+                      <td className="px-6 py-4">
+                        <select 
+                          value={o.status} 
+                          onChange={(e) => handleStatusChange(o.id, e.target.value as any)}
+                          className={`text-[10px] font-black uppercase tracking-widest rounded-lg px-2 py-1 border-0 focus:ring-2 focus:ring-indigo-500 ${
+                            o.status === 'pending' ? 'bg-orange-100 text-orange-600' :
+                            o.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                          }`}
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="processing">Processing</option>
+                          <option value="completed">Completed</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
+                      </td>
+                      <td className="px-6 py-4 text-right space-x-2">
+                        <button onClick={() => setSelectedOrder(o)} className="text-indigo-400 hover:text-indigo-900"><i className="bi bi-eye"></i></button>
+                        <button onClick={() => handleDeleteOrder(o.id)} className="text-red-300 hover:text-red-500"><i className="bi bi-trash"></i></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="bg-white rounded-[2.5rem] shadow-xl border border-indigo-50 overflow-hidden">
+              <div className="p-6 border-b border-indigo-50 flex justify-between items-center">
+                 <h3 className="font-black text-indigo-950">{lang === 'ar' ? 'قائمة المشتركين' : 'WhatsApp Subscriber List'}</h3>
+                 <button onClick={loadEnrollments} className="text-indigo-600 hover:rotate-180 transition-transform p-2"><i className="bi bi-arrow-clockwise"></i></button>
+              </div>
+              <table className="w-full text-left" dir="ltr">
+                <thead className="bg-indigo-50/50 text-[10px] font-black text-indigo-300 uppercase tracking-widest">
+                  <tr>
+                    <th className="px-8 py-5">Name</th>
+                    <th className="px-8 py-5">Phone Number</th>
+                    <th className="px-8 py-5">Joined Date</th>
+                    <th className="px-8 py-5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-indigo-50/30">
+                  {loading ? (
+                    <tr><td colSpan={4} className="p-12 text-center text-indigo-300 font-black">Loading...</td></tr>
+                  ) : enrollments.length === 0 ? (
+                    <tr><td colSpan={4} className="p-12 text-center text-gray-400 font-bold">No subscribers yet.</td></tr>
+                  ) : (
+                    enrollments.map(e => (
+                      <tr key={e.id} className="hover:bg-indigo-50/20 transition-colors">
+                        <td className="px-8 py-4 font-black text-indigo-950 text-sm">{e.name || 'Anonymous'}</td>
+                        <td className="px-8 py-4 font-mono font-black text-indigo-900">+962 {e.phone}</td>
+                        <td className="px-8 py-4 text-xs text-indigo-400">{new Date(e.createdAt).toLocaleDateString()}</td>
+                        <td className="px-8 py-4 text-right">
+                          <button onClick={() => window.open(`https://wa.me/962${e.phone}`, '_blank')} className="p-2 text-green-500 hover:scale-110 transition-transform"><i className="bi bi-whatsapp"></i></button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex bg-gray-100 p-1.5 rounded-2xl w-fit gap-2 mb-8">
-        <button 
-          onClick={() => setTab('products')}
-          className={`px-8 py-2.5 rounded-xl font-black text-sm transition-all ${tab === 'products' ? 'bg-white text-indigo-900 shadow-md' : 'text-gray-500 hover:bg-white/50'}`}
-        >
-          {lang === 'ar' ? 'المخزون' : 'Inventory'}
-        </button>
-        <button 
-          onClick={() => setTab('orders')}
-          className={`px-8 py-2.5 rounded-xl font-black text-sm transition-all ${tab === 'orders' ? 'bg-white text-indigo-900 shadow-md' : 'text-gray-500 hover:bg-white/50'}`}
-        >
-          {lang === 'ar' ? 'الطلبات' : 'Orders'}
-        </button>
-      </div>
-
-      {tab === 'products' ? (
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left" dir="ltr">
-              <thead className="bg-gray-50 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-                <tr>
-                  <th className="px-8 py-4">Status</th>
-                  <th className="px-8 py-4">Product</th>
-                  <th className="px-8 py-4">Price</th>
-                  <th className="px-8 py-4">Unit</th>
-                  <th className="px-8 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {products.map(p => (
-                  <tr key={p.id} className="hover:bg-indigo-50/30 transition-colors">
-                    <td className="px-8 py-4">
-                      {p.organic ? <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">Organic</span> : <span className="text-xs text-gray-400">Standard</span>}
-                    </td>
-                    <td className="px-8 py-4">
-                      <div className="flex items-center gap-3">
-                        <img src={p.image} className="w-10 h-10 rounded-xl object-cover shadow-sm" alt="" />
-                        <span className="font-bold text-indigo-900">{p.name[lang]}</span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-4 font-mono font-bold">{p.price.toFixed(2)} JD</td>
-                    <td className="px-8 py-4 text-xs font-bold text-gray-500">{p.unit}</td>
-                    <td className="px-8 py-4 text-right space-x-3">
-                      <button onClick={() => setEditingProduct(p)} className="text-indigo-600 hover:text-indigo-800 font-bold text-sm">Edit</button>
-                      <button onClick={() => handleDelete(p.id)} className="text-red-500 hover:text-red-700 font-bold text-sm">Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left" dir="ltr">
-              <thead className="bg-gray-50 text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-                <tr>
-                  <th className="px-8 py-4">Order ID</th>
-                  <th className="px-8 py-4">Customer</th>
-                  <th className="px-8 py-4">Total</th>
-                  <th className="px-8 py-4">Status</th>
-                  <th className="px-8 py-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {orders.map(o => (
-                  <tr key={o.id} className="hover:bg-indigo-50/30 transition-colors">
-                    <td className="px-8 py-4 font-mono font-bold text-indigo-900">#{o.id}</td>
-                    <td className="px-8 py-4 text-sm">+{o.customerPhone}</td>
-                    <td className="px-8 py-4 font-black text-orange-600">{o.total.toFixed(2)} JD</td>
-                    <td className="px-8 py-4">
-                      <select 
-                        value={o.status}
-                        onChange={(e) => onUpdateOrderStatus(o.id, e.target.value as any)}
-                        className={`text-xs font-bold border-none rounded-lg p-1.5 focus:ring-0 cursor-pointer ${
-                          o.status === 'completed' ? 'bg-green-100 text-green-700' : 
-                          o.status === 'pending' ? 'bg-orange-100 text-orange-700' : 
-                          'bg-gray-100 text-gray-700'
-                        }`}
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="processing">Processing</option>
-                        <option value="completed">Completed</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </td>
-                    <td className="px-8 py-4">
-                      <button 
-                        onClick={() => setSelectedOrder(o)}
-                        className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-100"
-                      >
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Product Edit Modal */}
       {editingProduct && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="absolute inset-0 bg-indigo-900/40" onClick={() => setEditingProduct(null)} />
-          <div className="relative bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-2xl font-black text-indigo-900 mb-6">{lang === 'ar' ? 'تعديل البيانات' : 'Update Product'}</h3>
-            <form onSubmit={handleSave} className="space-y-4">
+          <div className="absolute inset-0 bg-indigo-950/60" onClick={() => setEditingProduct(null)} />
+          <div className="relative bg-white w-full max-w-lg rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-2xl font-black text-indigo-950 mb-6">Product Editor</h3>
+            <form onSubmit={handleSaveProduct} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="text-[10px] font-black text-indigo-300 uppercase">Product Name (EN)</label>
-                  <input required value={editingProduct.name?.en} onChange={e => setEditingProduct({...editingProduct, name: {...editingProduct.name!, en: e.target.value}})} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500" />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-[10px] font-black text-indigo-300 uppercase">الاسم بالعربي</label>
-                  <input required value={editingProduct.name?.ar} onChange={e => setEditingProduct({...editingProduct, name: {...editingProduct.name!, ar: e.target.value}})} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 font-tajawal text-right" dir="rtl" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-indigo-300 uppercase">Price (JD)</label>
-                  <input type="number" step="0.01" required value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value)})} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 font-mono" />
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Name (EN/AR)</label>
+                  <div className="space-y-2">
+                    <input required placeholder="English" value={editingProduct.name?.en} onChange={e => setEditingProduct({...editingProduct, name: {...editingProduct.name!, en: e.target.value}})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold" />
+                    <input required placeholder="العربية" dir="rtl" value={editingProduct.name?.ar} onChange={e => setEditingProduct({...editingProduct, name: {...editingProduct.name!, ar: e.target.value}})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold font-tajawal" />
+                  </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-indigo-300 uppercase">Unit</label>
-                  <input required value={editingProduct.unit} onChange={e => setEditingProduct({...editingProduct, unit: e.target.value})} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500" />
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Category</label>
+                  <select value={editingProduct.category} onChange={e => setEditingProduct({...editingProduct, category: e.target.value as any})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs font-black uppercase">
+                    <option value="vegetables">Vegetables</option>
+                    <option value="fruits">Fruits</option>
+                    <option value="other">Other</option>
+                    <option value="organic">Organic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Price / JD</label>
+                  <input type="number" step="0.01" required value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value)})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-black" />
                 </div>
                 <div className="col-span-2">
-                  <label className="text-[10px] font-black text-indigo-300 uppercase">Image URL</label>
-                  <input required value={editingProduct.image} onChange={e => setEditingProduct({...editingProduct, image: e.target.value})} className="w-full bg-gray-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-indigo-500" />
-                </div>
-                <div className="flex items-center gap-2 py-2">
-                  <input type="checkbox" checked={editingProduct.organic} onChange={e => setEditingProduct({...editingProduct, organic: e.target.checked})} className="rounded text-green-600 focus:ring-green-500" />
-                  <label className="text-sm font-bold text-indigo-900">Organic Product</label>
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Image URL</label>
+                  <input required value={editingProduct.image} onChange={e => setEditingProduct({...editingProduct, image: e.target.value})} className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs font-mono" />
                 </div>
               </div>
-              <div className="flex gap-3 pt-6">
-                <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-black shadow-lg hover:bg-indigo-700 transition-all">Save Changes</button>
-                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-gray-100 text-gray-500 py-3 rounded-2xl font-bold hover:bg-gray-200">Cancel</button>
+              <div className="flex gap-3 pt-4">
+                <button type="submit" className="flex-1 bg-indigo-900 text-white py-4 rounded-xl font-black">Save Changes</button>
+                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 bg-gray-50 text-gray-400 py-4 rounded-xl font-black uppercase text-[10px]">Cancel</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Order Details Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="absolute inset-0 bg-indigo-900/40" onClick={() => setSelectedOrder(null)} />
-          <div className="relative bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
-            <h3 className="text-2xl font-black text-indigo-900 mb-2">Order Details</h3>
-            <p className="text-xs text-indigo-300 font-bold mb-6 tracking-widest uppercase">ID: #{selectedOrder.id}</p>
-            
-            <div className="space-y-4 max-h-[40vh] overflow-y-auto mb-6 pr-2">
-              {selectedOrder.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center bg-gray-50 p-3 rounded-2xl">
-                  <div className="flex items-center gap-3">
-                    <img src={item.image} className="w-12 h-12 rounded-lg object-cover" alt="" />
-                    <div>
-                      <p className="font-bold text-indigo-900 text-sm">{item.name[lang]}</p>
-                      <p className="text-[10px] text-gray-400">{item.quantity} {item.unit} x {item.price.toFixed(2)} JD</p>
+          <div className="absolute inset-0 bg-indigo-950/60" onClick={() => setSelectedOrder(null)} />
+          <div className="relative bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-indigo-950">Order Details #{selectedOrder.id}</h3>
+              <button onClick={() => setSelectedOrder(null)} className="p-2 text-gray-400 hover:text-indigo-950"><i className="bi bi-x-lg"></i></button>
+            </div>
+            <div className="flex-grow overflow-y-auto space-y-6">
+              <div className="grid grid-cols-2 gap-4 bg-indigo-50/50 p-4 rounded-2xl">
+                <div><p className="text-[9px] font-black text-indigo-300 uppercase">Phone</p><p className="font-black">{selectedOrder.customerPhone}</p></div>
+                <div><p className="text-[9px] font-black text-indigo-300 uppercase">City</p><p className="font-black">{selectedOrder.customerCity}</p></div>
+              </div>
+              <div className="space-y-3">
+                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Ordered Items</p>
+                {selectedOrder.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2">
+                    <div className="flex items-center gap-3">
+                      <img src={item.image} className="w-10 h-10 rounded-lg object-cover" />
+                      <div><p className="font-bold">{item.name[lang]}</p><p className="text-[10px] text-gray-400">{item.quantity} {item.unit}</p></div>
                     </div>
+                    <p className="font-black">{(item.price * item.quantity).toFixed(2)} JD</p>
                   </div>
-                  <span className="font-bold text-indigo-900 text-sm">{(item.quantity * item.price).toFixed(2)} JD</span>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div className="pt-4 border-t border-dashed border-gray-200 space-y-2">
+                <div className="flex justify-between text-xs text-gray-500"><span>Subtotal</span><span>{selectedOrder.subtotal.toFixed(2)} JD</span></div>
+                <div className="flex justify-between text-xs text-gray-500"><span>Delivery</span><span>{selectedOrder.deliveryFee.toFixed(2)} JD</span></div>
+                <div className="flex justify-between text-xl font-black text-indigo-950"><span>Total</span><span>{selectedOrder.total.toFixed(2)} JD</span></div>
+              </div>
             </div>
-
-            <div className="border-t border-dashed border-gray-200 pt-4 space-y-2">
-               <div className="flex justify-between text-xs font-bold text-gray-400">
-                  <span>Subtotal</span>
-                  <span>{selectedOrder.subtotal.toFixed(2)} JD</span>
-               </div>
-               <div className="flex justify-between text-xs font-bold text-gray-400">
-                  <span>Delivery</span>
-                  <span>{selectedOrder.deliveryFee.toFixed(2)} JD</span>
-               </div>
-               <div className="flex justify-between text-xl font-black text-orange-600 pt-2">
-                  <span>Total</span>
-                  <span>{selectedOrder.total.toFixed(2)} JD</span>
-               </div>
-            </div>
-
-            <button 
-              onClick={() => setSelectedOrder(null)}
-              className="w-full mt-8 bg-indigo-900 text-white py-4 rounded-2xl font-black hover:bg-indigo-800 transition-all"
-            >
-              Close Details
-            </button>
+            <button onClick={() => setSelectedOrder(null)} className="mt-6 w-full bg-indigo-900 text-white py-3 rounded-xl font-black">Close Details</button>
           </div>
         </div>
       )}

@@ -1,93 +1,203 @@
 
-import { Product, Order, User } from '../types';
-import { INITIAL_PRODUCTS } from '../constants';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Product, Order, User, Enrollment } from '../types';
 
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+// Provided Supabase credentials
+const FALLBACK_URL = 'https://uljlkwbqadhgsfmhqaup.supabase.co';
+const FALLBACK_KEY = 'sb_publishable_M1fMGhxpcsCGrjvXADj_DQ_Pwer0Rvj';
 
-class MockSupabase {
-  private getStorage<T>(key: string): T[] {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : [];
-  }
-
-  private setStorage<T>(key: string, data: T[]): void {
-    localStorage.setItem(key, JSON.stringify(data));
-  }
-
-  async signIn(phone: string): Promise<{ user: User | null; error: string | null }> {
-    await delay(800);
-    if (!/^7[0-9]{8}$/.test(phone)) {
-      return { user: null, error: 'Invalid Jordanian phone number (must be 7XXXXXXXX)' };
+const getEnv = (key: string): string => {
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key] as string;
     }
-    
-    let users = this.getStorage<User>('users');
-    let user = users.find(u => u.phone === phone);
-    
-    if (!user) {
-      // First user ever is an admin for demo purposes
-      const role = users.length === 0 ? 'admin' : 'customer';
-      user = { id: Math.random().toString(36).substr(2, 9), phone, role };
-      users.push(user);
-      this.setStorage('users', users);
+    if (typeof (window as any).process !== 'undefined' && (window as any).process.env && (window as any).process.env[key]) {
+      return (window as any).process.env[key];
     }
-    
-    return { user, error: null };
+  } catch (e) {
+    console.warn(`Error accessing environment variable ${key}:`, e);
   }
+  if (key === 'SUPABASE_URL') return FALLBACK_URL;
+  if (key === 'SUPABASE_ANON_KEY') return FALLBACK_KEY;
+  return '';
+};
 
-  async getProducts(): Promise<Product[]> {
-    await delay(500);
-    const products = this.getStorage<Product>('products');
-    // If empty OR if the catalog was significantly updated (new constant list is larger), reset it
-    if (products.length < INITIAL_PRODUCTS.length) {
-      this.setStorage('products', INITIAL_PRODUCTS);
-      return INITIAL_PRODUCTS;
-    }
-    return products;
-  }
+const supabaseUrl = getEnv('SUPABASE_URL');
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
 
-  async saveProduct(product: Product): Promise<void> {
-    await delay(600);
-    let products = this.getStorage<Product>('products');
-    const index = products.findIndex(p => p.id === product.id);
-    if (index >= 0) {
-      products[index] = product;
-    } else {
-      products.push(product);
-    }
-    this.setStorage('products', products);
-  }
+let supabase: SupabaseClient | null = null;
 
-  async deleteProduct(id: string): Promise<void> {
-    await delay(400);
-    let products = this.getStorage<Product>('products');
-    products = products.filter(p => p.id !== id);
-    this.setStorage('products', products);
-  }
-
-  async getOrders(phone?: string): Promise<Order[]> {
-    await delay(700);
-    const orders = this.getStorage<Order>('orders');
-    return phone ? orders.filter(o => o.customerPhone === phone) : orders;
-  }
-
-  async createOrder(order: Order): Promise<void> {
-    await delay(1200);
-    const orders = this.getStorage<Order>('orders');
-    orders.push(order);
-    this.setStorage('orders', orders);
-  }
-
-  async updateOrderStatus(id: string, status: Order['status']): Promise<Order | null> {
-    await delay(500);
-    const orders = this.getStorage<Order>('orders');
-    const index = orders.findIndex(o => o.id === id);
-    if (index >= 0) {
-      orders[index].status = status;
-      this.setStorage('orders', orders);
-      return orders[index];
-    }
-    return null;
+if (supabaseUrl && supabaseAnonKey) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (e) {
+    console.error("Failed to initialize Supabase client:", e);
   }
 }
 
-export const db = new MockSupabase();
+class SupabaseService {
+  private get client(): SupabaseClient {
+    if (!supabase) throw new Error("Supabase client is not initialized.");
+    return supabase;
+  }
+
+  private isAvailable(): boolean {
+    return supabase !== null;
+  }
+
+  async signIn(phone: string, city?: string, pin?: string): Promise<{ user: User | null; error: string | null }> {
+    if (!this.isAvailable()) return { user: null, error: 'Database connection unavailable' };
+    if (!/^7[0-9]{8}$/.test(phone)) return { user: null, error: 'Invalid Jordanian phone number' };
+
+    try {
+      const { data: existingUser, error: fetchError } = await this.client
+        .from('users')
+        .select('*')
+        .eq('phone', phone)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') return { user: null, error: fetchError.message };
+
+      if (existingUser) {
+        if (existingUser.role === 'admin' && pin !== existingUser.pin) {
+          return { user: null, error: 'INCORRECT_ADMIN_PIN' };
+        }
+        if (city && city !== existingUser.city) {
+          await this.client.from('users').update({ city }).eq('phone', phone);
+        }
+        return { user: existingUser as User, error: null };
+      }
+
+      const { data: allUsers } = await this.client.from('users').select('id').limit(1);
+      const isFirstUser = !allUsers || allUsers.length === 0;
+      const role = (isFirstUser || phone === '790000000') ? 'admin' : 'customer';
+
+      const newUser: Partial<User> = {
+        phone,
+        city,
+        role,
+        pin: role === 'admin' ? '123456' : undefined
+      };
+
+      const { data: insertedUser, error: insertError } = await this.client
+        .from('users')
+        .insert([newUser])
+        .select()
+        .single();
+
+      if (insertError) return { user: null, error: insertError.message };
+      return { user: insertedUser as User, error: null };
+    } catch (e: any) {
+      return { user: null, error: e.message };
+    }
+  }
+
+  async getProducts(): Promise<Product[]> {
+    if (!this.isAvailable()) return [];
+    const { data, error } = await this.client.from('products').select('*').order('created_at', { ascending: false });
+    if (error) return [];
+    return data.map((p: any) => ({
+      id: p.id,
+      name: { en: p.name_en, ar: p.name_ar },
+      category: p.category,
+      price: p.price,
+      discountPrice: p.discount_price,
+      image: p.image,
+      unit: p.unit,
+      organic: p.organic,
+      description: p.description_en ? { en: p.description_en, ar: p.description_ar } : undefined
+    }));
+  }
+
+  async saveProduct(product: Product): Promise<void> {
+    const payload = {
+      id: product.id,
+      name_en: product.name.en,
+      name_ar: product.name.ar,
+      category: product.category,
+      price: product.price,
+      discount_price: product.discountPrice,
+      image: product.image,
+      unit: product.unit,
+      organic: product.organic,
+      description_en: product.description?.en,
+      description_ar: product.description?.ar
+    };
+    await this.client.from('products').upsert([payload]);
+  }
+
+  async deleteProduct(id: string): Promise<void> {
+    await this.client.from('products').delete().eq('id', id);
+  }
+
+  async getOrders(phone?: string): Promise<Order[]> {
+    if (!this.isAvailable()) return [];
+    let query = this.client.from('orders').select('*').order('created_at', { ascending: false });
+    if (phone) query = query.eq('customer_phone', phone);
+    const { data, error } = await query;
+    if (error) return [];
+    return data.map((o: any) => ({
+      id: o.id,
+      customerPhone: o.customer_phone,
+      customerCity: o.customer_city,
+      items: o.items,
+      subtotal: o.subtotal,
+      deliveryFee: o.delivery_fee,
+      total: o.total,
+      status: o.status,
+      createdAt: o.created_at
+    }));
+  }
+
+  async createOrder(order: Order): Promise<void> {
+    await this.client.from('orders').insert([{
+      id: order.id,
+      customer_phone: order.customerPhone,
+      customer_city: order.customerCity,
+      items: order.items,
+      subtotal: order.subtotal,
+      delivery_fee: order.deliveryFee,
+      total: order.total,
+      status: order.status,
+      created_at: order.createdAt
+    }]);
+  }
+
+  async updateOrderStatus(id: string, status: Order['status']): Promise<Order | null> {
+    const { data, error } = await this.client.from('orders').update({ status }).eq('id', id).select().single();
+    if (error) return null;
+    return {
+      id: data.id,
+      customerPhone: data.customer_phone,
+      customerCity: data.customer_city,
+      items: data.items,
+      subtotal: data.subtotal,
+      deliveryFee: data.delivery_fee,
+      total: data.total,
+      status: data.status,
+      createdAt: data.created_at
+    };
+  }
+
+  async deleteOrder(id: string): Promise<void> {
+    await this.client.from('orders').delete().eq('id', id);
+  }
+
+  async addEnrollment(enrollment: Omit<Enrollment, 'id' | 'createdAt'>): Promise<void> {
+    await this.client.from('enrollments').insert([{ name: enrollment.name, phone: enrollment.phone }]);
+  }
+
+  async getEnrollments(): Promise<Enrollment[]> {
+    if (!this.isAvailable()) return [];
+    const { data, error } = await this.client.from('enrollments').select('*').order('created_at', { ascending: false });
+    if (error) return [];
+    return data.map((e: any) => ({
+      id: e.id,
+      name: e.name,
+      phone: e.phone,
+      createdAt: e.created_at
+    }));
+  }
+}
+
+export const db = new SupabaseService();

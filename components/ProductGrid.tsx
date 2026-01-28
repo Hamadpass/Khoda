@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Language } from '../types';
 import ProductCard from './ProductCard';
 
@@ -13,6 +13,13 @@ interface ProductGridProps {
 
 const ProductGrid: React.FC<ProductGridProps> = ({ products, lang, onAddToCart, searchTerm, isLoading }) => {
   const [filter, setFilter] = useState<Product['category'] | 'all'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Reset to first page when filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchTerm]);
 
   const filtered = useMemo(() => {
     return products.filter(p => {
@@ -25,92 +32,106 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products, lang, onAddToCart, 
     });
   }, [products, filter, searchTerm]);
 
+  // Pagination logic: only paginate if total > 20
+  const showPagination = filtered.length > 20;
+  
+  const paginatedProducts = useMemo(() => {
+    if (!showPagination) return filtered;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filtered.slice(startIndex, startIndex + itemsPerPage);
+  }, [filtered, currentPage, showPagination]);
+
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+
   const categories = [
-    { id: 'all', label: { ar: 'الكل', en: 'All' } },
-    { id: 'fruits', label: { ar: 'فواكه', en: 'Fruits' } },
-    { id: 'vegetables', label: { ar: 'خضروات', en: 'Vegetables' } },
-    { id: 'organic', label: { ar: 'عضوي', en: 'Organic' } },
+    { id: 'all', label: { ar: 'الكل', en: 'All' }, icon: '🥗' },
+    { id: 'vegetables', label: { ar: 'خضروات', en: 'Vegetables' }, icon: '🥦' },
+    { id: 'fruits', label: { ar: 'فواكه', en: 'Fruits' }, icon: '🍎' },
+    { id: 'other', label: { ar: 'أخرى', en: 'Other' }, icon: '🍯' },
+    { id: 'organic', label: { ar: 'عضوي', en: 'Organic' }, icon: '🌿' },
   ];
 
-  const renderSkeletons = () => (
-    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 animate-pulse">
-      {Array.from({ length: 10 }).map((_, i) => (
-        <div key={i} className="bg-white rounded-2xl overflow-hidden border border-gray-100 flex flex-col h-full">
-          <div className="aspect-square bg-gray-100" />
-          <div className="p-3 space-y-3">
-            <div className="h-3 bg-gray-100 rounded w-3/4" />
-            <div className="h-3 bg-gray-100 rounded w-1/2" />
-            <div className="h-8 bg-gray-50 rounded-xl w-full mt-4" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
-    <div className="py-4 w-full">
-      <div className="flex overflow-x-auto pb-6 mb-2 scrollbar-hide gap-3 justify-start md:justify-center">
+    <div className="py-4 w-full max-w-[1600px] mx-auto">
+      <div className="flex overflow-x-auto pb-6 mb-2 scrollbar-hide gap-3 justify-start lg:justify-center px-4">
         {categories.map(cat => (
           <button
             key={cat.id}
             onClick={() => setFilter(cat.id as any)}
-            className={`px-6 py-2 rounded-2xl font-bold whitespace-nowrap transition-all duration-300 flex-shrink-0 ${
+            className={`px-5 py-2.5 rounded-2xl font-black whitespace-nowrap transition-all duration-300 flex items-center gap-2 flex-shrink-0 ${
               filter === cat.id 
                 ? 'bg-[#266041] text-white shadow-xl scale-105 ring-4 ring-green-100' 
                 : 'bg-white text-gray-600 hover:bg-green-50 hover:text-[#266041] border border-gray-100 shadow-sm'
             }`}
           >
-            {cat.label[lang]}
+            <span className="text-lg">{cat.icon}</span>
+            <span className="text-xs uppercase tracking-tight">{cat.label[lang]}</span>
           </button>
         ))}
       </div>
 
-      {isLoading ? (
-        <div className="space-y-6">
-          <div className="text-center py-8">
-             <div className="inline-block w-8 h-8 border-4 border-[#266041] border-t-transparent rounded-full animate-spin mb-3"></div>
-             <p className="text-[#266041] font-black text-sm">
-               {lang === 'ar' ? 'جارٍ جلب المحاصيل الطازجة...' : 'Gathering fresh produce...'}
-             </p>
-          </div>
-          {renderSkeletons()}
+      <div className="px-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-6 w-full">
+          {paginatedProducts.map(product => (
+            <ProductCard 
+              key={product.id} 
+              product={product} 
+              lang={lang} 
+              onAdd={onAddToCart} 
+            />
+          ))}
         </div>
-      ) : (
-        <>
-          {searchTerm && (
-            <p className="mb-6 text-gray-400 font-bold text-sm text-center">
-              {lang === 'ar' 
-                ? `نتائج البحث عن "${searchTerm}"` 
-                : `Search results for "${searchTerm}"`}
-            </p>
-          )}
-
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 w-full">
-            {filtered.map(product => (
-              <ProductCard 
-                key={product.id} 
-                product={product} 
-                lang={lang} 
-                onAdd={onAddToCart} 
-              />
-            ))}
+        
+        {!isLoading && filtered.length === 0 && (
+          <div className="text-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-gray-100 mt-4">
+            <div className="text-6xl mb-4 grayscale opacity-20">🔍</div>
+            <h3 className="text-lg font-black text-gray-800">
+              {lang === 'ar' ? 'لم نجد نتائج في هذا القسم' : 'No results in this category'}
+            </h3>
           </div>
-          
-          {filtered.length === 0 && (
-            <div className="text-center py-24 bg-white rounded-3xl border-2 border-dashed border-gray-100 mt-8">
-              <div className="text-7xl mb-6 grayscale opacity-30 animate-bounce">🔍</div>
-              <h3 className="text-xl font-black text-gray-800 mb-2">
-                {lang === 'ar' ? 'لم نجد ما تبحث عنه' : 'No results found'}
-              </h3>
-              <p className="text-gray-500 font-medium">
-                {lang === 'ar' 
-                  ? 'جرّب البحث بكلمات مختلفة أو تغيير التصنيف' 
-                  : 'Try searching for something else or changing categories'}
-              </p>
+        )}
+
+        {showPagination && totalPages > 1 && (
+          <div className="flex justify-center items-center gap-2 mt-12 pb-8">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => handlePageChange(currentPage - 1)}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-gray-100 text-[#266041] disabled:opacity-30 shadow-sm transition-all active:scale-90"
+            >
+              <i className={`bi bi-chevron-${lang === 'ar' ? 'right' : 'left'}`}></i>
+            </button>
+            
+            <div className="flex gap-1 overflow-x-auto max-w-[200px] scrollbar-hide px-2">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`min-w-[40px] h-10 px-2 rounded-xl font-black text-xs transition-all shadow-sm ${
+                    currentPage === page 
+                      ? 'bg-[#266041] text-white scale-110' 
+                      : 'bg-white text-gray-400 border border-gray-100 hover:text-[#266041]'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
             </div>
-          )}
-        </>
-      )}
+
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => handlePageChange(currentPage + 1)}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-gray-100 text-[#266041] disabled:opacity-30 shadow-sm transition-all active:scale-90"
+            >
+              <i className={`bi bi-chevron-${lang === 'ar' ? 'left' : 'right'}`}></i>
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

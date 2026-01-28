@@ -8,7 +8,12 @@ import CartDrawer from './components/CartDrawer';
 import AdminDashboard from './components/AdminDashboard';
 import OrderHistory from './components/OrderHistory';
 import GeminiAssistant from './components/GeminiAssistant';
+import AuthModal from './components/AuthModal';
+import SpecialDeals from './components/SpecialDeals';
+import WhatsAppEnrollment from './components/WhatsAppEnrollment';
+import AddToHomeScreen from './components/AddToHomeScreen';
 
+// Main Application Component
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('ar');
   const [user, setUser] = useState<User | null>(null);
@@ -17,6 +22,7 @@ const App: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeSection, setActiveSection] = useState<'home' | 'admin' | 'orders'>('home');
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
   
   const [isInitializing, setIsInitializing] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
@@ -24,7 +30,6 @@ const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isOrdering, setIsOrdering] = useState(false);
 
-  // Safely initialize application data
   useEffect(() => {
     const init = async () => {
       try {
@@ -35,7 +40,6 @@ const App: React.FC = () => {
           try {
             setCart(JSON.parse(savedCartStr));
           } catch (e) {
-            console.error("Cart parse error", e);
             localStorage.removeItem('khodarji_cart');
           }
         }
@@ -49,14 +53,12 @@ const App: React.FC = () => {
               setOrders(fetchedOrders || []);
             }
           } catch (e) {
-            console.error("User parse error", e);
             localStorage.removeItem('khodarji_user');
           }
         }
       } catch (e) {
-        console.error("Initialization global error", e);
+        console.error("Init error", e);
       } finally {
-        // Minimum delay for branding experience
         setTimeout(() => setIsInitializing(false), 800);
       }
 
@@ -65,7 +67,7 @@ const App: React.FC = () => {
         const fetchedProducts = await db.getProducts();
         setProducts(fetchedProducts || []);
       } catch (e) {
-        console.error("Products fetch error", e);
+        console.error("Products error", e);
       } finally {
         setIsProductsLoading(false);
       }
@@ -73,25 +75,30 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  // Sync cart to local storage
   useEffect(() => {
     localStorage.setItem('khodarji_cart', JSON.stringify(cart));
   }, [cart]);
 
-  const handlePhoneIdentification = async (phone: string) => {
+  const handlePhoneIdentification = async (phone: string, city: string, pin?: string) => {
     try {
-      const { user: newUser } = await db.signIn(phone);
+      const { user: newUser, error } = await db.signIn(phone, city, pin);
+      if (error === 'INCORRECT_ADMIN_PIN') {
+        return { success: false, error: 'INCORRECT_PIN' };
+      }
+      
       if (newUser) {
         setUser(newUser);
         localStorage.setItem('khodarji_user', JSON.stringify(newUser));
         const fetchedOrders = await db.getOrders(newUser.role === 'admin' ? undefined : newUser.phone);
         setOrders(fetchedOrders || []);
-        return newUser;
+        setIsAuthOpen(false);
+        if (newUser.role === 'admin') setActiveSection('admin');
+        return { success: true };
       }
     } catch (e) {
       console.error("Login error", e);
     }
-    return null;
+    return { success: false };
   };
 
   const logout = () => {
@@ -127,27 +134,33 @@ const App: React.FC = () => {
     }
   };
 
-  const createOrder = async (phone: string) => {
+  const createOrder = async (phone: string, city: string) => {
     if (cart.length === 0) return;
-    
     setIsOrdering(true);
     let currentUser = user;
-    
-    // Auto-identify if phone changed or user not logged in
     if (!currentUser || currentUser.phone !== phone) {
-      currentUser = await handlePhoneIdentification(phone);
+      const result = await handlePhoneIdentification(phone, city);
+      if (!result.success) {
+        setIsOrdering(false);
+        return;
+      }
+      currentUser = user; 
     }
     
-    if (!currentUser) {
+    const currentStorageUser = JSON.parse(localStorage.getItem('khodarji_user') || 'null');
+    const finalUser = currentUser || currentStorageUser;
+
+    if (!finalUser) {
       setIsOrdering(false);
       return;
     }
 
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const subtotal = cart.reduce((sum, item) => sum + ((item.discountPrice || item.price) * item.quantity), 0);
     const deliveryFee = subtotal >= 20 ? 0 : 2;
     const order: Order = {
       id: Math.random().toString(36).substr(2, 6).toUpperCase(),
-      customerPhone: phone,
+      customerPhone: finalUser.phone,
+      customerCity: finalUser.city || city,
       items: [...cart],
       subtotal,
       deliveryFee,
@@ -155,14 +168,12 @@ const App: React.FC = () => {
       status: 'pending',
       createdAt: new Date().toISOString()
     };
-    
     try {
       await db.createOrder(order);
       setOrders(prev => [order, ...prev]);
       setCart([]);
       setIsCartOpen(false);
-      // Wait for state propagation before switching view
-      setTimeout(() => setActiveSection('orders'), 100);
+      setTimeout(() => setActiveSection('orders'), 150);
     } catch (e) {
       console.error("Order creation failed", e);
     } finally {
@@ -173,11 +184,11 @@ const App: React.FC = () => {
   if (isInitializing) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#f8fafc] w-full">
-        <div className="animate-float mb-6 text-6xl">🥬</div>
-        <div className="w-64 h-1.5 bg-gray-200 rounded-full overflow-hidden relative">
+        <div className="animate-float mb-6 text-6xl md:text-8xl">🥬</div>
+        <div className="w-64 md:w-80 h-2 bg-gray-200 rounded-full overflow-hidden relative">
           <div className="absolute top-0 left-0 h-full bg-[#266041] animate-[loading_1.5s_infinite_ease-in-out]"></div>
         </div>
-        <p className="mt-6 text-[#266041] font-black tracking-tight text-xl">
+        <p className="mt-8 text-[#266041] font-black tracking-tight text-2xl animate-pulse text-center px-4">
           {lang === 'ar' ? 'خضرجي في خدمتك...' : 'Khodarji is preparing...'}
         </p>
         <style>{`
@@ -190,7 +201,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Determine what to show in main content area
   const renderContent = () => {
     if (activeSection === 'admin' && user?.role === 'admin') {
       return (
@@ -208,38 +218,51 @@ const App: React.FC = () => {
 
     if (activeSection === 'orders' && user) {
       return (
-        <div className="w-full px-4 md:px-12 mt-8 max-w-4xl mx-auto animate-in slide-in-from-bottom-4">
+        <div className="w-full px-4 md:px-12 mt-8 max-w-4xl mx-auto animate-in slide-in-from-bottom-4 pb-20">
           <OrderHistory lang={lang} orders={orders} />
         </div>
       );
     }
 
-    // Default: Home Section
     return (
-      <div className="animate-in fade-in duration-700 w-full">
-        <section className="relative h-[45vh] md:h-[60vh] flex items-center justify-center w-full">
+      <div className="animate-in fade-in duration-700 w-full pb-24">
+        {user?.role === 'admin' && activeSection === 'home' && (
+          <div className="bg-orange-500 text-white py-3 px-6 text-center animate-in slide-in-from-top-full">
+            <div className="max-w-7xl mx-auto flex items-center justify-center gap-4">
+              <span className="font-black text-xs md:text-sm uppercase tracking-widest">
+                {lang === 'ar' ? 'أنت مسجل كمدير نظام' : 'You are logged in as Admin'}
+              </span>
+              <button 
+                onClick={() => setActiveSection('admin')}
+                className="bg-white text-orange-600 px-4 py-1.5 rounded-full font-black text-[10px] md:text-xs shadow-lg hover:scale-105 transition-transform"
+              >
+                {lang === 'ar' ? 'افتح لوحة التحكم' : 'Open Dashboard'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <section className="relative h-[45vh] md:h-[65vh] flex items-center justify-center w-full">
           <div className="absolute inset-0 bg-cover bg-center w-full h-full" 
             style={{ backgroundImage: `url('https://images.unsplash.com/photo-1542838132-92c53300491e?w=1600')` }}>
             <div className="absolute inset-0 bg-black/45 backdrop-grayscale-[0.1]" />
           </div>
           
           <div className="relative text-center px-6 z-10 w-full max-w-6xl">
-            <h1 className="text-4xl md:text-8xl font-black text-white mb-6 drop-shadow-2xl">
+            <h1 className="text-4xl md:text-9xl font-black text-white mb-6 drop-shadow-2xl leading-[1.1]">
               {lang === 'ar' ? 'خضرتك بلدية وطازجة' : 'Jordan\'s Finest Produce'}
             </h1>
             <p className="text-lg md:text-3xl text-white/95 mb-10 font-bold">
-              {lang === 'ar' ? 'توصيل لباب بيتك بلمح البصر' : 'Delivered to your door instantly'}
+              {lang === 'ar' ? 'من مزارعنا لمائدتك، طعم الأرض الحقيقي' : 'From our farms to your table, the real taste of earth'}
             </p>
-            <button 
-              onClick={() => document.getElementById('shop')?.scrollIntoView({ behavior: 'smooth' })}
-              className="bg-[#ff5722] hover:bg-[#e64a19] text-white px-12 py-5 rounded-2xl font-black text-xl shadow-2xl transition-all transform hover:scale-105 active:scale-95"
-            >
-              {lang === 'ar' ? 'تسوق الآن' : 'Shop Now'}
-            </button>
           </div>
         </section>
 
-        <div id="shop" className="w-full px-4 md:px-8 lg:px-12 mt-8 md:mt-16">
+        {!searchTerm && (
+          <SpecialDeals products={products} lang={lang} onAddToCart={addToCart} />
+        )}
+
+        <div className="max-w-7xl mx-auto px-4 py-6">
           <ProductGrid 
             products={products} 
             lang={lang} 
@@ -248,75 +271,57 @@ const App: React.FC = () => {
             isLoading={isProductsLoading}
           />
         </div>
+
+        {!searchTerm && (
+          <div className="max-w-7xl mx-auto px-4 py-12">
+            <WhatsAppEnrollment lang={lang} />
+          </div>
+        )}
       </div>
     );
   };
 
   return (
-    <div className={`min-h-screen flex flex-col w-full overflow-x-hidden ${lang === 'ar' ? 'font-tajawal' : 'font-sans'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+    <div className={`min-h-screen bg-[#f8fafc] text-slate-900 ${lang === 'ar' ? 'font-tajawal' : 'font-sans'}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
       <Navbar 
         lang={lang} 
         setLang={setLang} 
         user={user} 
-        cartCount={cart.length} 
+        cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
         onCartClick={() => setIsCartOpen(true)}
+        onLoginClick={() => setIsAuthOpen(true)}
         onLogout={logout}
         activeSection={activeSection}
         setActiveSection={setActiveSection}
         onSearch={setSearchTerm}
       />
-
-      <main className="flex-grow pt-16 w-full">
+      
+      <div className="pt-20">
         {renderContent()}
-      </main>
+      </div>
 
       <CartDrawer 
-        isOpen={isCartOpen} 
-        onClose={() => setIsCartOpen(false)} 
-        cart={cart} 
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        cart={cart}
         lang={lang}
         onUpdateQuantity={updateCartQuantity}
         onRemove={removeFromCart}
         onCheckout={createOrder}
-        phone={user?.phone || ""}
+        phone={user?.phone || ''}
+        city={user?.city || ''}
         isOrdering={isOrdering}
       />
 
-      <GeminiAssistant cartItems={cart} lang={lang} />
+      <AuthModal 
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onLogin={handlePhoneIdentification}
+        lang={lang}
+      />
 
-      <footer className="bg-[#1a202c] text-white py-16 mt-20 w-full">
-        <div className="w-full px-4 md:px-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-center md:text-right">
-            <div>
-              <h3 className="text-3xl font-black mb-6 flex items-center justify-center md:justify-start gap-3">
-                <span className="bg-[#266041] p-1.5 rounded-lg">🥕</span>
-                {lang === 'ar' ? 'خضرجي - عمان' : 'Khodarji - Amman'}
-              </h3>
-              <p className="text-gray-400 leading-relaxed text-lg">
-                {lang === 'ar' 
-                  ? 'نوفر لك أفضل المحاصيل الزراعية من مزارعنا في الأردن مباشرة إلى مائدتك مع ضمان الجودة العالية.' 
-                  : 'We bring the best agricultural produce from our farms in Jordan straight to your table with quality guaranteed.'}
-              </p>
-            </div>
-            <div>
-              <h4 className="font-black text-2xl mb-6">{lang === 'ar' ? 'تواصل معنا' : 'Get in Touch'}</h4>
-              <p className="text-gray-400 mb-2 text-lg">WhatsApp: +962 790 801 695</p>
-              <p className="text-gray-400 text-lg">Email: support@khodarji.jo</p>
-            </div>
-            <div className="flex flex-col items-center md:items-start">
-               <h4 className="font-black text-2xl mb-6">{lang === 'ar' ? 'تابعنا' : 'Follow Us'}</h4>
-               <div className="flex gap-8 text-3xl">
-                 <i className="bi bi-facebook hover:text-[#ff5722] cursor-pointer transition-colors"></i>
-                 <i className="bi bi-instagram hover:text-[#ff5722] cursor-pointer transition-colors"></i>
-                 <i className="bi bi-twitter-x hover:text-[#ff5722] cursor-pointer transition-colors"></i>
-               </div>
-            </div>
-          </div>
-          <div className="mt-16 pt-8 border-t border-gray-800 text-center text-gray-500 text-sm">
-            © {new Date().getFullYear()} Khodarji. {lang === 'ar' ? 'جميع الحقوق محفوظة.' : 'All rights reserved.'}
-          </div>
-        </div>
-      </footer>
+      <GeminiAssistant cartItems={cart} lang={lang} />
+      <AddToHomeScreen lang={lang} />
     </div>
   );
 };

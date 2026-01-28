@@ -9,8 +9,9 @@ export interface LocalizedString {
 export interface Product {
   id: string;
   name: LocalizedString;
-  category: 'fruits' | 'vegetables' | 'organic';
+  category: 'fruits' | 'vegetables' | 'other' | 'organic';
   price: number;
+  discountPrice?: number; // Optional discounted price for special deals
   image: string;
   unit: string;
   organic: boolean;
@@ -24,6 +25,7 @@ export interface CartItem extends Product {
 export interface Order {
   id: string;
   customerPhone: string;
+  customerCity: string;
   items: CartItem[];
   subtotal: number;
   deliveryFee: number;
@@ -35,7 +37,16 @@ export interface Order {
 export interface User {
   id: string;
   phone: string;
+  city?: string;
   role: 'customer' | 'admin';
+  pin?: string; // Secure PIN for admin access
+}
+
+export interface Enrollment {
+  id: string;
+  name?: string;
+  phone: string;
+  createdAt: string;
 }
 
 export interface ChatMessage {
